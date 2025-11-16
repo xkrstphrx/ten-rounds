@@ -3,14 +3,18 @@ import { useGame } from '../hooks/useGame';
 import { Card, CardBack } from './Card';
 import type { Card as CardType } from '../types/game';
 import { PHASES } from '../utils/constants';
+import { canCompletePhase } from '../utils/validation';
 
 export function Game() {
-  const { gameState, drawFromDeck, drawFromDiscard, discardCard, resetGame } = useGame();
+  const { gameState, drawFromDeck, drawFromDiscard, discardCard, completePhase, resetGame } = useGame();
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [isPhaseMode, setIsPhaseMode] = useState(false);
   
   const currentPlayer = gameState.players[gameState.currentPlayerIndex];
   const isPlayerTurn = currentPlayer.id === 'player';
   const topDiscard = gameState.discardPile[gameState.discardPile.length - 1];
+  const humanPlayer = gameState.players.find(p => !p.isComputer);
+  const currentPhase = PHASES[currentPlayer.currentPhase];
 
   // Computer AI turn
   useEffect(() => {
@@ -39,9 +43,14 @@ export function Game() {
     if (newSelected.has(card.id)) {
       newSelected.delete(card.id);
     } else {
-      // Only allow selecting one card for discard
-      newSelected.clear();
-      newSelected.add(card.id);
+      if (isPhaseMode) {
+        // In phase mode, allow multiple card selection
+        newSelected.add(card.id);
+      } else {
+        // In discard mode, only allow selecting one card
+        newSelected.clear();
+        newSelected.add(card.id);
+      }
     }
     setSelectedCards(newSelected);
   };
@@ -51,11 +60,23 @@ export function Game() {
       const cardId = Array.from(selectedCards)[0];
       discardCard(cardId);
       setSelectedCards(new Set());
+      setIsPhaseMode(false);
     }
   };
 
-  const currentPhase = PHASES[currentPlayer.currentPhase];
-  const humanPlayer = gameState.players.find(p => !p.isComputer);
+  const handleCompletePhase = () => {
+    const selectedCardObjects = humanPlayer!.hand.filter(c => selectedCards.has(c.id));
+    completePhase(selectedCardObjects);
+    setSelectedCards(new Set());
+    setIsPhaseMode(false);
+  };
+
+  const canSubmitPhase = () => {
+    if (!humanPlayer || humanPlayer.hasCompletedPhase) return false;
+    const selectedCardObjects = humanPlayer.hand.filter(c => selectedCards.has(c.id));
+    return canCompletePhase(selectedCardObjects, currentPhase.requirements);
+  };
+
   const computerPlayer = gameState.players.find(p => p.isComputer);
 
   return (
@@ -149,18 +170,50 @@ export function Game() {
 
           {/* Action buttons */}
           <div className="flex gap-2 mt-4">
-            <button
-              onClick={handleDiscard}
-              disabled={!isPlayerTurn || !gameState.hasDrawn || selectedCards.size !== 1}
-              className={`
-                flex-1 px-4 py-3 rounded-lg font-semibold text-white
-                ${isPlayerTurn && gameState.hasDrawn && selectedCards.size === 1
-                  ? 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700'
-                  : 'bg-gray-500 cursor-not-allowed opacity-50'}
-              `}
-            >
-              Discard Selected
-            </button>
+            {isPlayerTurn && gameState.hasDrawn && !humanPlayer?.hasCompletedPhase && (
+              <button
+                onClick={() => {
+                  setIsPhaseMode(!isPhaseMode);
+                  setSelectedCards(new Set());
+                }}
+                className={`
+                  px-4 py-3 rounded-lg font-semibold text-white
+                  ${isPhaseMode
+                    ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700'
+                    : 'bg-gray-700 hover:bg-gray-600 active:bg-gray-800'}
+                `}
+              >
+                {isPhaseMode ? 'Cancel Phase' : 'Select for Phase'}
+              </button>
+            )}
+            
+            {isPhaseMode ? (
+              <button
+                onClick={handleCompletePhase}
+                disabled={!canSubmitPhase()}
+                className={`
+                  flex-1 px-4 py-3 rounded-lg font-semibold text-white
+                  ${canSubmitPhase()
+                    ? 'bg-green-500 hover:bg-green-600 active:bg-green-700'
+                    : 'bg-gray-500 cursor-not-allowed opacity-50'}
+                `}
+              >
+                Complete Phase {canSubmitPhase() ? '✓' : ''}
+              </button>
+            ) : (
+              <button
+                onClick={handleDiscard}
+                disabled={!isPlayerTurn || !gameState.hasDrawn || selectedCards.size !== 1}
+                className={`
+                  flex-1 px-4 py-3 rounded-lg font-semibold text-white
+                  ${isPlayerTurn && gameState.hasDrawn && selectedCards.size === 1 && !isPhaseMode
+                    ? 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700'
+                    : 'bg-gray-500 cursor-not-allowed opacity-50'}
+                `}
+              >
+                Discard Selected
+              </button>
+            )}
           </div>
 
           {/* Instructions */}
@@ -169,8 +222,18 @@ export function Game() {
               {!gameState.hasDrawn && isPlayerTurn && (
                 <span>Draw a card from the draw pile or discard pile</span>
               )}
-              {gameState.hasDrawn && isPlayerTurn && (
-                <span>Select a card to discard</span>
+              {gameState.hasDrawn && isPlayerTurn && !isPhaseMode && (
+                <span>
+                  {humanPlayer?.hasCompletedPhase 
+                    ? 'Select a card to discard'
+                    : 'Select a card to discard, or click "Select for Phase" to complete your phase'}
+                </span>
+              )}
+              {gameState.hasDrawn && isPlayerTurn && isPhaseMode && (
+                <span>
+                  Select cards for your phase: {currentPhase.description}
+                  {canSubmitPhase() && ' - Ready to complete!'}
+                </span>
               )}
               {!isPlayerTurn && (
                 <span>Computer is taking their turn...</span>

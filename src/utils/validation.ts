@@ -62,9 +62,10 @@ export function canCompletePhase(
 ): boolean {
   const { sets, runs, sameColor } = phaseRequirements;
   
+  let remainingCards = [...cards];
+  
   if (sets) {
     // Try to find required sets
-    let remainingCards = [...cards];
     for (const setSize of sets) {
       const foundSet = findSet(remainingCards, setSize);
       if (!foundSet) return false;
@@ -73,8 +74,7 @@ export function canCompletePhase(
   }
   
   if (runs) {
-    // Try to find required runs
-    let remainingCards = [...cards];
+    // Try to find required runs from remaining cards
     for (const runSize of runs) {
       const foundRun = findRun(remainingCards, runSize);
       if (!foundRun) return false;
@@ -124,4 +124,92 @@ function getCombinations<T>(array: T[], size: number): T[][] {
     }
   }
   return result;
+}
+
+export function organizePhaseCards(
+  cards: Card[],
+  phaseRequirements: { sets?: number[], runs?: number[], sameColor?: number }
+): { sets: Card[][], runs: Card[][], colors: Card[][] } {
+  const { sets, runs, sameColor } = phaseRequirements;
+  const result = { sets: [] as Card[][], runs: [] as Card[][], colors: [] as Card[][] };
+  
+  let remainingCards = [...cards];
+  
+  if (sets) {
+    for (const setSize of sets) {
+      const foundSet = findSet(remainingCards, setSize);
+      if (foundSet) {
+        result.sets.push(foundSet);
+        remainingCards = remainingCards.filter(c => !foundSet.includes(c));
+      }
+    }
+  }
+  
+  if (runs) {
+    for (const runSize of runs) {
+      const foundRun = findRun(remainingCards, runSize);
+      if (foundRun) {
+        result.runs.push(foundRun);
+        remainingCards = remainingCards.filter(c => !foundRun.includes(c));
+      }
+    }
+  }
+  
+  if (sameColor) {
+    result.colors.push(cards);
+  }
+  
+  return result;
+}
+
+export function canPlayOnSet(card: Card, set: Card[]): boolean {
+  if (card.wild === 'wild') return true;
+  if (set.length === 0) return false;
+  
+  // Find the value of the set
+  const setValue = set.find(c => c.value !== undefined)?.value;
+  if (setValue === undefined) return false;
+  
+  return card.value === setValue;
+}
+
+export function canPlayOnRun(card: Card, run: Card[]): boolean {
+  if (card.wild === 'wild') return true;
+  if (run.length === 0) return false;
+  
+  const numberedCards = run
+    .filter(c => c.value !== undefined)
+    .sort((a, b) => (a.value || 0) - (b.value || 0));
+  
+  if (numberedCards.length === 0) return false;
+  
+  const minValue = numberedCards[0].value!;
+  const maxValue = numberedCards[numberedCards.length - 1].value!;
+  
+  if (card.value === undefined) return false;
+  
+  // Can play if it's one below min or one above max
+  return card.value === minValue - 1 || card.value === maxValue + 1;
+}
+
+export function canPlayOnColor(card: Card, colorGroup: Card[]): boolean {
+  if (card.wild === 'wild') return true;
+  if (colorGroup.length === 0) return false;
+  
+  const groupColor = colorGroup.find(c => c.suit !== undefined)?.suit;
+  if (groupColor === undefined) return false;
+  
+  return card.suit === groupColor;
+}
+
+export function calculateCardValue(card: Card): number {
+  if (card.wild === 'skip') return 15;
+  if (card.wild === 'wild') return 25;
+  if (card.value === undefined) return 0;
+  if (card.value >= 10) return 10;
+  return 5;
+}
+
+export function calculateHandScore(hand: Card[]): number {
+  return hand.reduce((sum, card) => sum + calculateCardValue(card), 0);
 }

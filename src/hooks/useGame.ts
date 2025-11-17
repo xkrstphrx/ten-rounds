@@ -207,7 +207,13 @@ export function useGame() {
       // Add card to target group and remove from hand
       return {
         ...state,
-        players: state.players.map(p => {
+        players: state.players.map((p, i) => {
+          // Always remove card from current player's hand
+          const newHand = i === state.currentPlayerIndex 
+            ? p.hand.filter(c => c.id !== cardId)
+            : p.hand;
+          
+          // Add card to target player's layed down cards
           if (p.id === targetPlayerId && p.layedDownCards) {
             const newLayedDownCards = { ...p.layedDownCards };
             if (groupType === 'set') {
@@ -220,11 +226,10 @@ export function useGame() {
               newLayedDownCards.colors = [...newLayedDownCards.colors];
               newLayedDownCards.colors[groupIndex] = [...newLayedDownCards.colors[groupIndex], card];
             }
-            return { ...p, layedDownCards: newLayedDownCards };
-          } else if (p.id === currentPlayer.id) {
-            return { ...p, hand: p.hand.filter(c => c.id !== cardId) };
+            return { ...p, hand: newHand, layedDownCards: newLayedDownCards };
           }
-          return p;
+          
+          return { ...p, hand: newHand };
         })
       };
     });

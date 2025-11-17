@@ -124,14 +124,25 @@ export function useGame() {
       
       // Check if hand is empty after discard - triggers round end
       if (newHand.length === 0) {
+        // Calculate scores for remaining cards and advance phases
+        const updatedPlayers = state.players.map((p, i) => {
+          const finalHand = i === state.currentPlayerIndex ? newHand : p.hand;
+          return {
+            ...p,
+            hand: finalHand,
+            score: p.score + calculateHandScore(finalHand),
+            // Advance phase if completed
+            currentPhase: p.hasCompletedPhase ? p.currentPhase + 1 : p.currentPhase,
+            completedPhases: p.hasCompletedPhase 
+              ? [...p.completedPhases, p.currentPhase]
+              : p.completedPhases
+          };
+        });
+        
         return {
           ...state,
           discardPile: [...state.discardPile, cardToDiscard],
-          players: state.players.map((p, i) =>
-            i === state.currentPlayerIndex
-              ? { ...p, hand: newHand }
-              : p
-          ),
+          players: updatedPlayers,
           phase: 'round-end'
         };
       }

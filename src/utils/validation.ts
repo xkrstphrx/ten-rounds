@@ -62,9 +62,10 @@ export function canCompletePhase(
 ): boolean {
   const { sets, runs, sameColor } = phaseRequirements;
   
+  let remainingCards = [...cards];
+  
   if (sets) {
     // Try to find required sets
-    let remainingCards = [...cards];
     for (const setSize of sets) {
       const foundSet = findSet(remainingCards, setSize);
       if (!foundSet) return false;
@@ -73,8 +74,7 @@ export function canCompletePhase(
   }
   
   if (runs) {
-    // Try to find required runs
-    let remainingCards = [...cards];
+    // Try to find required runs from remaining cards
     for (const runSize of runs) {
       const foundRun = findRun(remainingCards, runSize);
       if (!foundRun) return false;

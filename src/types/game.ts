@@ -39,6 +39,7 @@ export interface Player {
   currentPhase: number;
   isComputer: boolean;
   hasCompletedPhase: boolean;
+  score: number;
   layedDownCards?: {
     sets: Card[][];
     runs: Card[][];

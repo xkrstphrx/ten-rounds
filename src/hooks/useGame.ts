@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { GameState, Player, Card } from '../types/game';
 import { createDeck, drawCards } from '../utils/deck';
-import { CARDS_PER_HAND } from '../utils/constants';
+import { CARDS_PER_HAND, PHASES } from '../utils/constants';
+import { organizePhaseCards, canPlayOnSet, canPlayOnRun, canPlayOnColor, calculateHandScore } from '../utils/validation';
 
 export function useGame() {
   const [gameState, setGameState] = useState<GameState>(initializeGame());
@@ -16,7 +17,8 @@ export function useGame() {
         completedPhases: [],
         currentPhase: 0,
         isComputer: false,
-        hasCompletedPhase: false
+        hasCompletedPhase: false,
+        score: 0
       },
       {
         id: 'computer',
@@ -25,7 +27,8 @@ export function useGame() {
         completedPhases: [],
         currentPhase: 0,
         isComputer: true,
-        hasCompletedPhase: false
+        hasCompletedPhase: false,
+        score: 0
       }
     ];
 
@@ -118,6 +121,21 @@ export function useGame() {
       if (!cardToDiscard) return state;
 
       const newHand = currentPlayer.hand.filter(c => c.id !== cardId);
+      
+      // Check if hand is empty after discard - triggers round end
+      if (newHand.length === 0) {
+        return {
+          ...state,
+          discardPile: [...state.discardPile, cardToDiscard],
+          players: state.players.map((p, i) =>
+            i === state.currentPlayerIndex
+              ? { ...p, hand: newHand }
+              : p
+          ),
+          phase: 'round-end'
+        };
+      }
+      
       const nextPlayerIndex = (state.currentPlayerIndex + 1) % state.players.length;
 
       return {
@@ -136,6 +154,12 @@ export function useGame() {
 
   function completePhase(selectedCards: Card[]) {
     setGameState(state => {
+      const currentPlayer = state.players[state.currentPlayerIndex];
+      const currentPhase = PHASES[currentPlayer.currentPhase];
+      
+      // Organize cards into sets/runs/colors based on phase requirements
+      const layedDownCards = organizePhaseCards(selectedCards, currentPhase.requirements);
+      
       return {
         ...state,
         players: state.players.map((p, i) =>
@@ -143,10 +167,122 @@ export function useGame() {
             ? { 
                 ...p, 
                 hasCompletedPhase: true,
+                layedDownCards,
                 hand: p.hand.filter(c => !selectedCards.find(sc => sc.id === c.id))
               }
             : p
         )
+      };
+    });
+  }
+
+  function playCardOnPhase(cardId: string, targetPlayerId: string, groupType: 'set' | 'run' | 'color', groupIndex: number) {
+    setGameState(state => {
+      if (!state.hasDrawn) return state;
+      
+      const currentPlayer = state.players[state.currentPlayerIndex];
+      if (!currentPlayer.hasCompletedPhase) return state;
+      
+      const card = currentPlayer.hand.find(c => c.id === cardId);
+      if (!card) return state;
+      
+      const targetPlayer = state.players.find(p => p.id === targetPlayerId);
+      if (!targetPlayer?.layedDownCards) return state;
+      
+      const targetGroup = targetPlayer.layedDownCards[groupType === 'set' ? 'sets' : groupType === 'run' ? 'runs' : 'colors'][groupIndex];
+      if (!targetGroup) return state;
+      
+      // Check if card can be played on the target group
+      let canPlay = false;
+      if (groupType === 'set') {
+        canPlay = canPlayOnSet(card, targetGroup);
+      } else if (groupType === 'run') {
+        canPlay = canPlayOnRun(card, targetGroup);
+      } else if (groupType === 'color') {
+        canPlay = canPlayOnColor(card, targetGroup);
+      }
+      
+      if (!canPlay) return state;
+      
+      // Add card to target group and remove from hand
+      return {
+        ...state,
+        players: state.players.map(p => {
+          if (p.id === targetPlayerId && p.layedDownCards) {
+            const newLayedDownCards = { ...p.layedDownCards };
+            if (groupType === 'set') {
+              newLayedDownCards.sets = [...newLayedDownCards.sets];
+              newLayedDownCards.sets[groupIndex] = [...newLayedDownCards.sets[groupIndex], card];
+            } else if (groupType === 'run') {
+              newLayedDownCards.runs = [...newLayedDownCards.runs];
+              newLayedDownCards.runs[groupIndex] = [...newLayedDownCards.runs[groupIndex], card];
+            } else if (groupType === 'color') {
+              newLayedDownCards.colors = [...newLayedDownCards.colors];
+              newLayedDownCards.colors[groupIndex] = [...newLayedDownCards.colors[groupIndex], card];
+            }
+            return { ...p, layedDownCards: newLayedDownCards };
+          } else if (p.id === currentPlayer.id) {
+            return { ...p, hand: p.hand.filter(c => c.id !== cardId) };
+          }
+          return p;
+        })
+      };
+    });
+  }
+
+  function endRound() {
+    setGameState(state => {
+      // Calculate scores for remaining cards
+      const updatedPlayers = state.players.map(p => ({
+        ...p,
+        score: p.score + calculateHandScore(p.hand),
+        // Advance phase if completed
+        currentPhase: p.hasCompletedPhase ? p.currentPhase + 1 : p.currentPhase,
+        completedPhases: p.hasCompletedPhase 
+          ? [...p.completedPhases, p.currentPhase]
+          : p.completedPhases
+      }));
+      
+      return {
+        ...state,
+        players: updatedPlayers,
+        phase: 'round-end'
+      };
+    });
+  }
+
+  function startNextRound() {
+    setGameState(state => {
+      const deck = createDeck();
+      
+      // Reset players for new round but keep scores and phases
+      const resetPlayers: Player[] = state.players.map(p => ({
+        ...p,
+        hand: [] as Card[],
+        hasCompletedPhase: false,
+        layedDownCards: undefined
+      }));
+      
+      // Deal cards to players
+      let remainingDeck = deck;
+      for (const player of resetPlayers) {
+        const { cards, remainingDeck: newDeck } = drawCards(remainingDeck, CARDS_PER_HAND);
+        player.hand = cards;
+        remainingDeck = newDeck;
+      }
+      
+      // Initialize discard pile with one card
+      const { cards: discardCards, remainingDeck: finalDeck } = drawCards(remainingDeck, 1);
+      
+      return {
+        ...state,
+        players: resetPlayers,
+        deck: finalDeck,
+        discardPile: discardCards,
+        currentPlayerIndex: 0,
+        phase: 'playing',
+        round: state.round + 1,
+        hasDrawn: false
       };
     });
   }
@@ -161,6 +297,9 @@ export function useGame() {
     drawFromDiscard,
     discardCard,
     completePhase,
+    playCardOnPhase,
+    endRound,
+    startNextRound,
     resetGame
   };
 }

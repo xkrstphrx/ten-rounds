@@ -90,14 +90,11 @@ export function canCompletePhase(
 }
 
 function findSet(cards: Card[], size: number): Card[] | null {
-  // Simple implementation - try all combinations
-  for (let i = 0; i < cards.length; i++) {
-    const subset = [cards[i]];
-    for (let j = i + 1; j < cards.length && subset.length < size; j++) {
-      subset.push(cards[j]);
-      if (subset.length === size && isSet(subset)) {
-        return subset;
-      }
+  // Try all combinations to find a valid set
+  const combinations = getCombinations(cards, size);
+  for (const combo of combinations) {
+    if (isSet(combo)) {
+      return combo;
     }
   }
   return null;
